@@ -54,6 +54,8 @@
   .card .name { flex: 1; text-align: left; padding: 12px 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .card .more { width: 44px; align-self: stretch; font-size: 18px; opacity: .8; }
   .card:active { filter: brightness(1.15); }
+  .card.stay { background: var(--hover); color: var(--stay); box-shadow: inset 4px 0 0 color-mix(in srgb, var(--pc) 45%, var(--hover)); }
+  .card .cstay { flex: none; font-size: 12px; font-weight: 400; color: var(--sub); border: 1px solid var(--line); border-radius: 13px; padding: 3px 10px; }
   .empty { color: var(--sub); text-align: center; padding: 48px 16px; }
 
   /* 詳細 */
@@ -153,7 +155,7 @@ const rgba = (hex, a) => { const n = parseInt(hex.slice(1), 16); return `rgba(${
 
 function normalize(projects) {
   return (projects || []).map((p) => ({
-    name: String(p.name || ''), color: Number(p.color) || 0,
+    name: String(p.name || ''), color: Number(p.color) || 0, stay: !!p.stay,
     tasks: (p.tasks || []).map((t) => typeof t === 'string'
       ? { text: t, today: '', stay: false }
       : { text: String(t.text || ''), today: String(t.today || ''), stay: !!t.stay })
@@ -171,8 +173,8 @@ function render() {
       <div class="goal"><label for="goal">達成すべき目標</label>
         <input id="goal" placeholder="タップして目標を入力" value="${esc(doc.goal)}" enterkeyhint="done"></div>
       <div class="projects">${doc.projects.length ? doc.projects.map((p, i) => `
-        <div class="card" style="--pc:${color(p)}">
-          <button class="name" data-open="${i}">${esc(p.name)}</button>
+        <div class="card ${p.stay ? 'stay' : ''}" style="--pc:${color(p)}">
+          <button class="name" data-open="${i}">${esc(p.name)}</button>${p.stay ? '<span class="cstay">ステイ</span>' : ''}
           <button class="more" data-menu="${i}" aria-label="メニュー">⋯</button>
         </div>`).join('') : '<div class="empty">下の欄からプロジェクトを追加</div>'}
       </div>`;
@@ -261,7 +263,7 @@ function addEntry() {
   const v = $('entry').value.trim();
   if (!v) return;
   $('entry').value = '';
-  if (cur < 0) doc.projects.push({ name: v, color: doc.projects.length % PALETTE.length, tasks: [] });
+  if (cur < 0) doc.projects.push({ name: v, color: doc.projects.length % PALETTE.length, stay: false, tasks: [] });
   else doc.projects[cur].tasks.push({ text: v, today: '', stay: false });
   save(); render();
   $('main').scrollTop = $('main').scrollHeight;
@@ -290,6 +292,7 @@ function openMenu(i) {
     <div class="title">${esc(p.name)}</div>
     <div class="rename"><input id="rn" value="${esc(p.name)}" enterkeyhint="done"><button id="rnOk">名前を保存</button></div>
     <div class="colors">${PALETTE.map((c, ci) => `<button data-color="${ci}" class="${ci === p.color % PALETTE.length ? 'sel' : ''}" style="background:${c}" aria-label="色${ci + 1}"></button>`).join('')}</div>
+    <button class="item" id="stay">${p.stay ? 'ステイを解除' : 'ステイにする'}</button>
     <button class="item danger" id="del">削除</button>
     <button class="item" id="cancel">閉じる</button>`;
   $('sheetBg').classList.add('show');
@@ -304,6 +307,7 @@ function openMenu(i) {
     if (cur === i) cur = -1; else if (cur > i) cur--;
     save(); closeMenu();
   };
+  $('stay').onclick = () => { p.stay = !p.stay; save(); closeMenu(); };
   $('cancel').onclick = closeMenu;
 }
 function closeMenu() { $('sheetBg').classList.remove('show'); render(); }
