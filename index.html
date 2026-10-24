@@ -15,7 +15,7 @@
   :root {
     --bg: #111318; --header: #181b22; --hover: #1e222b; --input: #1c1f27; --line: #262a34;
     --text: #e8eaee; --sub: #78808e; --ph: #969eac; --stay: #5c6370;
-    --accent: #5eead4; --accent-dim: #2d6962; --danger: #f87171;
+    --accent: #5eead4; --habit: #f87171; --accent-dim: #2d6962; --danger: #f87171;
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); }
@@ -44,6 +44,9 @@
   .goal { margin: 14px 14px 8px; background: var(--header); border-left: 3px solid var(--accent); padding: 10px 14px 12px; }
   .goal label { display: block; color: var(--accent); font-size: 12px; margin-bottom: 4px; }
   .goal input { font-size: 18px; font-weight: 600; }
+  .goal.habit { margin-top: 0; border-left-color: var(--habit); }
+  .goal.habit label { color: var(--habit); }
+  .goal.habit input { font-size: 16px; }
 
   /* プロジェクト */
   .projects { padding: 6px 14px; display: flex; flex-direction: column; gap: 8px; }
@@ -141,7 +144,7 @@ try {
 } catch (e) {}
 const PALETTE = ['#118c80', '#4f46e5', '#db2777', '#ea580c', '#7c3aed', '#0284c7', '#65a30d', '#ca8a04'];
 
-let doc = { goal: '', projects: [] };
+let doc = { goal: '', habit: '', projects: [] };
 let rev = -1, cur = -1;
 let saveTimer = null, saving = false, dirty = false;
 let lastDone = null, toastTimer = null;
@@ -172,6 +175,8 @@ function render() {
     m.innerHTML = `
       <div class="goal"><label for="goal">達成すべき目標</label>
         <input id="goal" placeholder="タップして目標を入力" value="${esc(doc.goal)}" enterkeyhint="done"></div>
+      <div class="goal habit"><label for="habit">捨てるべき思考のクセ</label>
+        <input id="habit" placeholder="タップして入力" value="${esc(doc.habit)}" enterkeyhint="done"></div>
       <div class="projects">${doc.projects.length ? doc.projects.map((p, i) => `
         <div class="card ${p.stay ? 'stay' : ''}" style="--pc:${color(p)}">
           <button class="name" data-open="${i}">${esc(p.name)}</button>${p.stay ? '<span class="cstay">ステイ</span>' : ''}
@@ -254,9 +259,10 @@ function startEdit(btn, i) {
 
 $('main').addEventListener('change', (e) => {
   if (e.target.id === 'goal') { doc.goal = e.target.value.trim(); save(); }
+  if (e.target.id === 'habit') { doc.habit = e.target.value.trim(); save(); }
 });
 $('main').addEventListener('keydown', (e) => {
-  if (e.target.id === 'goal' && e.key === 'Enter' && !e.isComposing) e.target.blur();
+  if ((e.target.id === 'goal' || e.target.id === 'habit') && e.key === 'Enter' && !e.isComposing) e.target.blur();
 });
 
 function addEntry() {
@@ -341,7 +347,7 @@ async function flush() {
   if (saving) return;
   saving = true; dirty = false; setStatus('busy');
   try {
-    const r = await api({ goal: doc.goal, projects: doc.projects });
+    const r = await api({ goal: doc.goal, habit: doc.habit, projects: doc.projects });
     rev = r.rev; cache(); setStatus('');
   } catch (e) {
     dirty = true; setStatus('err');
@@ -357,7 +363,8 @@ async function pull() {
     setStatus('');
     if (saving || dirty || isEditing() || $('sheetBg').classList.contains('show')) return;
     if (d.rev !== rev) {
-      doc = { goal: d.goal || '', projects: normalize(d.projects) };
+      // サーバーがまだ habit を知らない（古い Code.gs）ときは、こちらの内容を残す
+      doc = { goal: d.goal || '', habit: ('habit' in d) ? (d.habit || '') : doc.habit, projects: normalize(d.projects) };
       rev = d.rev; cache(); render();
     }
   } catch (e) {
@@ -384,7 +391,7 @@ function askKey(msg) {
 
 try {
   const c = JSON.parse(localStorage.getItem('np-cache') || 'null');
-  if (c && c.doc) { doc = { goal: c.doc.goal || '', projects: normalize(c.doc.projects) }; rev = c.rev; }
+  if (c && c.doc) { doc = { goal: c.doc.goal || '', habit: c.doc.habit || '', projects: normalize(c.doc.projects) }; rev = c.rev; }
 } catch (e) {}
 if (KEY) { render(); pull(); } else askKey();
 setInterval(pull, 15000);
