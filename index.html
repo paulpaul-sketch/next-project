@@ -88,6 +88,12 @@
   .pill.on.p-today { background: var(--pc); border-color: var(--pc); color: #fff; }
   .pill.on.p-stay { background: var(--line); border-color: var(--line); }
 
+
+  .card, .task { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  .card.dragging, .task.dragging { position: relative; z-index: 3; transform: scale(1.02); box-shadow: 0 8px 22px rgba(0,0,0,.6); }
+  .card.dragging { outline: 2px solid rgba(255,255,255,.7); }
+  .task.dragging { background: var(--hover); outline: 1px solid var(--pc); border-radius: 6px; }
+
   /* 入力欄 */
   footer { flex: none; padding: 8px 12px; padding-bottom: max(12px, env(safe-area-inset-bottom)); background: var(--bg); }
   .entry { display: flex; align-items: center; height: 46px; background: var(--input); border: 1px solid var(--accent-dim); }
@@ -178,7 +184,7 @@ function render() {
       <div class="goal habit"><label for="habit">捨てるべき思考のクセ</label>
         <input id="habit" placeholder="タップして入力" value="${esc(doc.habit)}" enterkeyhint="done"></div>
       <div class="projects">${doc.projects.length ? doc.projects.map((p, i) => `
-        <div class="card ${p.stay ? 'stay' : ''}" style="--pc:${color(p)}">
+        <div class="card ${p.stay ? 'stay' : ''}" data-i="${i}" style="--pc:${color(p)}">
           <button class="name" data-open="${i}">${esc(p.name)}</button>${p.stay ? '<span class="cstay">ステイ</span>' : ''}
           <button class="more" data-menu="${i}" aria-label="メニュー">⋯</button>
         </div>`).join('') : '<div class="empty">下の欄からプロジェクトを追加</div>'}
@@ -197,19 +203,20 @@ function render() {
           <span class="tcount">${n ? `今日 ${n} / ${p.tasks.length}` : `${p.tasks.length} tasks`}</span>
           <button class="more" data-menu="${cur}" aria-label="メニュー">⋯</button>
         </div>
-        ${p.tasks.map((t, i) => `
+        <div class="tasks">${p.tasks.map((t, i) => `
           <div class="task ${isToday(t) ? 'today' : ''} ${t.stay ? 'stay' : ''}">
             <button class="check" data-done="${i}" aria-label="完了"><i></i></button>
             <button class="text" data-edit="${i}">${esc(t.text)}</button>
             <button class="pill p-today ${isToday(t) ? 'on' : ''}" data-today="${i}">今日</button>
             <button class="pill p-stay ${t.stay ? 'on' : ''}" data-stay="${i}">ステイ</button>
-          </div>`).join('')}
+          </div>`).join('')}</div>
       </div>`;
   }
 }
 
 // ---------- 操作 ----------
 $('main').addEventListener('click', (e) => {
+  if (suppressClick) { e.preventDefault(); return; }
   const b = e.target.closest('button');
   if (!b) return;
   const d = b.dataset;
@@ -319,7 +326,75 @@ function openMenu(i) {
 function closeMenu() { $('sheetBg').classList.remove('show'); render(); }
 $('sheetBg').addEventListener('click', (e) => { if (e.target === $('sheetBg')) closeMenu(); });
 
-// ---------- 同期 ----------
+// ---------- 並べ替え（長押しで持ち上げて、指を動かす） ----------
+let drag = null, pressTimer = null, pressCleanup = null, suppressClick = false;
+$('main').addEventListener('pointerdown', (e) => {
+  const item = e.target.closest('.card, .task');
+  if (!item || e.button > 0 || drag) return;
+  // 丸・今日・ステイ・⋯ からは始めない（名前と文字の部分だけ）
+  const b = e.target.closest('button');
+  if (b && !b.classList.contains('name') && !b.classList.contains('text')) return;
+  const sx = e.clientX, sy = e.clientY;
+  const onMove = (ev) => { if (Math.abs(ev.clientX - sx) > 8 || Math.abs(ev.clientY - sy) > 8) cleanup(); };
+  const cleanup = () => {
+    clearTimeout(pressTimer);
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', cleanup);
+    window.removeEventListener('pointercancel', cleanup);
+  };
+  pressCleanup = cleanup;
+  window.addEventListener('pointermove', onMove);
+  window.addEventListener('pointerup', cleanup);
+  window.addEventListener('pointercancel', cleanup);
+  pressTimer = setTimeout(() => { cleanup(); startDrag(item, sy); }, 350);
+});
+// ドラッグ中は画面のスクロールを止める
+document.addEventListener('touchmove', (e) => { if (drag) e.preventDefault(); }, { passive: false });
+document.addEventListener('contextmenu', (e) => { if (drag || e.target.closest('.card, .task')) e.preventDefault(); });
+
+function startDrag(item, y) {
+  const sel = item.classList.contains('card') ? '.card' : '.task';
+  const list = item.parentElement;
+  drag = { item, list, sel, from: [...list.querySelectorAll(sel)].indexOf(item) };
+  item.classList.add('dragging');
+  if (navigator.vibrate) navigator.vibrate(15);
+  window.addEventListener('pointermove', onDragMove, { passive: false });
+  window.addEventListener('pointerup', endDrag);
+  window.addEventListener('pointercancel', endDrag);
+}
+function onDragMove(e) {
+  if (!drag) return;
+  e.preventDefault();
+  const y = e.clientY;
+  // 指の位置より下にある最初の行の前に入れる（ほかの行がよける）
+  const others = [...drag.list.querySelectorAll(drag.sel)].filter((el) => el !== drag.item);
+  const next = others.find((el) => { const r = el.getBoundingClientRect(); return y < r.top + r.height / 2; });
+  if (next) { if (drag.item.nextElementSibling !== next) drag.list.insertBefore(drag.item, next); }
+  else if (others.length && drag.item !== others[others.length - 1].nextElementSibling) others[others.length - 1].after(drag.item);
+  // 端に来たら自動でスクロール
+  const m = $('main').getBoundingClientRect();
+  if (y < m.top + 40) $('main').scrollTop -= 10;
+  else if (y > m.bottom - 40) $('main').scrollTop += 10;
+}
+function endDrag() {
+  if (!drag) return;
+  window.removeEventListener('pointermove', onDragMove);
+  window.removeEventListener('pointerup', endDrag);
+  window.removeEventListener('pointercancel', endDrag);
+  const { item, list, sel, from } = drag;
+  const to = [...list.querySelectorAll(sel)].indexOf(item);
+  drag = null;
+  item.classList.remove('dragging');
+  suppressClick = true; setTimeout(() => { suppressClick = false; }, 400);
+  if (to >= 0 && to !== from) {
+    const arr = sel === '.card' ? doc.projects : doc.projects[cur].tasks;
+    const [moved] = arr.splice(from, 1);
+    arr.splice(to, 0, moved);
+    save();
+  }
+  render();
+}
+
 function setStatus(s) { $('dot').className = 'dot' + (s === 'busy' ? ' busy' : s === 'err' ? ' err' : ''); }
 function isEditing() {
   const a = document.activeElement;
