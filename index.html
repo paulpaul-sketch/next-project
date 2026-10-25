@@ -85,6 +85,24 @@
     border: 1px solid var(--line); color: var(--sub);
   }
   .pill:last-child { margin-right: 4px; }
+  .pill { padding: 0 8px; margin-right: 4px; }
+  .pill.on.p-routine { background: var(--accent-dim); border-color: var(--accent-dim); color: var(--accent); }
+  .check i { position: relative; }
+  .done .check i { background: var(--accent); border-color: var(--accent); }
+  .task.done .check i { background: var(--pc); border-color: var(--pc); }
+  .done .check i::after { content: ""; position: absolute; left: 5px; top: 1px; width: 5px; height: 10px; border: solid #111318; border-width: 0 2px 2px 0; transform: rotate(45deg); }
+  .done .text, .done .rtext { color: var(--stay); text-decoration: line-through; }
+
+  /* ルーティン枠 */
+  .routines { margin: 18px 14px 0; }
+  .rhead { display: flex; justify-content: space-between; color: var(--accent); font-size: 12px; padding: 0 2px 8px; border-bottom: 1px solid var(--line); }
+  .rhead .rcount { color: var(--sub); }
+  .rrow { display: flex; align-items: center; min-height: 46px; border-bottom: 1px solid var(--line); }
+  .rrow .check { width: 40px; height: 46px; display: grid; place-items: center; flex: none; }
+  .rrow .check i { width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid var(--sub); display: block; }
+  .rtext { flex: 1; min-width: 0; text-align: left; padding: 12px 6px 12px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rproj { flex: none; max-width: 40%; display: flex; align-items: center; gap: 6px; color: var(--sub); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 2px; }
+  .rproj b { width: 8px; height: 8px; border-radius: 50%; flex: none; }
   .pill.on.p-today { background: var(--pc); border-color: var(--pc); color: #fff; }
   .pill.on.p-stay { background: var(--line); border-color: var(--line); }
 
@@ -159,6 +177,8 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const today = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
 const isToday = (t) => t.today === today();
+// ルーティンを今日やったか（日付が変わると外れる）
+const isDone = (t) => t.routine && t.done === today();
 const color = (p) => PALETTE[(p.color || 0) % PALETTE.length];
 const rgba = (hex, a) => { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; };
 
@@ -166,8 +186,8 @@ function normalize(projects) {
   return (projects || []).map((p) => ({
     name: String(p.name || ''), color: Number(p.color) || 0, stay: !!p.stay,
     tasks: (p.tasks || []).map((t) => typeof t === 'string'
-      ? { text: t, today: '', stay: false }
-      : { text: String(t.text || ''), today: String(t.today || ''), stay: !!t.stay })
+      ? { text: t, today: '', stay: false, routine: false, done: '' }
+      : { text: String(t.text || ''), today: String(t.today || ''), stay: !!t.stay, routine: !!t.routine, done: String(t.done || '') })
   }));
 }
 
@@ -188,7 +208,7 @@ function render() {
           <button class="name" data-open="${i}">${esc(p.name)}</button>${p.stay ? '<span class="cstay">ステイ</span>' : ''}
           <button class="more" data-menu="${i}" aria-label="メニュー">⋯</button>
         </div>`).join('') : '<div class="empty">下の欄からプロジェクトを追加</div>'}
-      </div>`;
+      </div>${routineHtml()}`;
   } else {
     const p = doc.projects[cur];
     const pc = color(p);
@@ -204,14 +224,32 @@ function render() {
           <button class="more" data-menu="${cur}" aria-label="メニュー">⋯</button>
         </div>
         <div class="tasks">${p.tasks.map((t, i) => `
-          <div class="task ${isToday(t) ? 'today' : ''} ${t.stay ? 'stay' : ''}">
+          <div class="task ${isToday(t) ? 'today' : ''} ${t.stay ? 'stay' : ''} ${isDone(t) ? 'done' : ''}">
             <button class="check" data-done="${i}" aria-label="完了"><i></i></button>
             <button class="text" data-edit="${i}">${esc(t.text)}</button>
+            <button class="pill p-routine ${t.routine ? 'on' : ''}" data-routine="${i}">ルーティン</button>
             <button class="pill p-today ${isToday(t) ? 'on' : ''}" data-today="${i}">今日</button>
             <button class="pill p-stay ${t.stay ? 'on' : ''}" data-stay="${i}">ステイ</button>
           </div>`).join('')}</div>
       </div>`;
   }
+}
+
+function routineHtml() {
+  const items = [];
+  doc.projects.forEach((p, pi) => p.tasks.forEach((t, ti) => { if (t.routine) items.push({ p, pi, t, ti }); }));
+  if (!items.length) return '';
+  const done = items.filter((x) => isDone(x.t)).length;
+  return `
+      <div class="routines">
+        <div class="rhead"><span>ルーティン</span><span class="rcount">${done} / ${items.length}</span></div>
+        ${items.map((x) => `
+          <div class="rrow ${isDone(x.t) ? 'done' : ''}">
+            <button class="check" data-rdone="${x.pi}:${x.ti}" aria-label="今日やった"><i></i></button>
+            <button class="rtext" data-ropen="${x.pi}">${esc(x.t.text)}</button>
+            <span class="rproj"><b style="background:${color(x.p)}"></b>${esc(x.p.name)}</span>
+          </div>`).join('')}
+      </div>`;
 }
 
 // ---------- 操作 ----------
@@ -223,12 +261,26 @@ $('main').addEventListener('click', (e) => {
   if (d.open !== undefined) { cur = +d.open; render(); $('main').scrollTop = 0; return; }
   if (d.back !== undefined) { cur = -1; render(); return; }
   if (d.menu !== undefined) { openMenu(+d.menu); return; }
+  if (d.ropen !== undefined) { cur = +d.ropen; render(); $('main').scrollTop = 0; return; }
+  if (d.rdone !== undefined) {
+    const [pi, ti] = d.rdone.split(':').map(Number);
+    const t = doc.projects[pi] && doc.projects[pi].tasks[ti];
+    if (t) { t.done = isDone(t) ? '' : today(); save(); render(); }
+    return;
+  }
   const p = doc.projects[cur];
   if (d.done !== undefined) {
     const i = +d.done;
+    // ルーティンは消さずに「今日やった」を付け外し
+    if (p.tasks[i].routine) { p.tasks[i].done = isDone(p.tasks[i]) ? '' : today(); save(); render(); return; }
     lastDone = { project: cur, index: i, task: p.tasks[i] };
     p.tasks.splice(i, 1);
     showToast(); save(); render(); return;
+  }
+  if (d.routine !== undefined) {
+    const t = p.tasks[+d.routine];
+    t.routine = !t.routine; if (!t.routine) t.done = '';
+    save(); render(); return;
   }
   if (d.today !== undefined) {
     const t = p.tasks[+d.today];
@@ -277,7 +329,7 @@ function addEntry() {
   if (!v) return;
   $('entry').value = '';
   if (cur < 0) doc.projects.push({ name: v, color: doc.projects.length % PALETTE.length, stay: false, tasks: [] });
-  else doc.projects[cur].tasks.push({ text: v, today: '', stay: false });
+  else doc.projects[cur].tasks.push({ text: v, today: '', stay: false, routine: false, done: '' });
   save(); render();
   $('main').scrollTop = $('main').scrollHeight;
 }
