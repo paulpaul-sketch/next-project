@@ -93,7 +93,8 @@
   .done .check i::after { content: ""; position: absolute; left: 5px; top: 1px; width: 5px; height: 10px; border: solid #111318; border-width: 0 2px 2px 0; transform: rotate(45deg); }
   .done .text, .done .rtext { color: var(--stay); text-decoration: line-through; }
 
-  /* ルーティン枠 */
+  /* 今日のタスク枠 */
+  .rmark { color: var(--accent); margin-right: 6px; }
   .routines { margin: 18px 14px 0; }
   .rhead { display: flex; justify-content: space-between; color: var(--accent); font-size: 12px; padding: 0 2px 8px; border-bottom: 1px solid var(--line); }
   .rhead .rcount { color: var(--sub); }
@@ -237,16 +238,17 @@ function render() {
 
 function routineHtml() {
   const items = [];
-  doc.projects.forEach((p, pi) => p.tasks.forEach((t, ti) => { if (t.routine) items.push({ p, pi, t, ti }); }));
+  // 今日のタスク = ルーティン ＋「今日」を付けたタスク（ステイ中は除く）
+  doc.projects.forEach((p, pi) => p.tasks.forEach((t, ti) => { if (!t.stay && (t.routine || isToday(t))) items.push({ p, pi, t, ti }); }));
   if (!items.length) return '';
-  const done = items.filter((x) => isDone(x.t)).length;
+  const left = items.filter((x) => !isDone(x.t)).length;
   return `
       <div class="routines">
-        <div class="rhead"><span>ルーティン</span><span class="rcount">${done} / ${items.length}</span></div>
+        <div class="rhead"><span>今日のタスク</span><span class="rcount">${left ? `残り ${left}` : '完了'}</span></div>
         ${items.map((x) => `
           <div class="rrow ${isDone(x.t) ? 'done' : ''}">
-            <button class="check" data-rdone="${x.pi}:${x.ti}" aria-label="今日やった"><i></i></button>
-            <button class="rtext" data-ropen="${x.pi}">${esc(x.t.text)}</button>
+            <button class="check" data-rdone="${x.pi}:${x.ti}" aria-label="完了"><i></i></button>
+            <button class="rtext" data-ropen="${x.pi}">${x.t.routine ? '<span class="rmark">↻</span>' : ''}${esc(x.t.text)}</button>
             <span class="rproj"><b style="background:${color(x.p)}"></b>${esc(x.p.name)}</span>
           </div>`).join('')}
       </div>`;
@@ -265,7 +267,11 @@ $('main').addEventListener('click', (e) => {
   if (d.rdone !== undefined) {
     const [pi, ti] = d.rdone.split(':').map(Number);
     const t = doc.projects[pi] && doc.projects[pi].tasks[ti];
-    if (t) { t.done = isDone(t) ? '' : today(); save(); render(); }
+    if (!t) return;
+    if (t.routine) { t.done = isDone(t) ? '' : today(); save(); render(); return; }   // ルーティン → 今日やった
+    lastDone = { project: pi, index: ti, task: t };                                    // 今日のタスク → 完了（消す）
+    doc.projects[pi].tasks.splice(ti, 1);
+    showToast(); save(); render();
     return;
   }
   const p = doc.projects[cur];
